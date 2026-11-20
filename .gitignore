@@ -1,0 +1,21 @@
+# Secrets & Environment variables
+.env
+*.env
+scraping/.env
+.streamlit/secrets.toml
+
+# Virtual Environment & Python cache
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+
+# Large raw archives & raw scraping dumps (only clean parquet & geojson are tracked)
+data/*.csv.gz
+data/*backup*
+scraping/data/
+
+# Temporary & test files
+*.pdf
+test_output.pdf
