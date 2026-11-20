@@ -2,6 +2,7 @@ import os
 import re
 import json
 import hashlib
+import urllib.parse
 import requests
 try:
     from dotenv import load_dotenv
@@ -189,117 +190,90 @@ def check_authentication():
 if not check_authentication():
     st.stop()
 
-# --- INJECT LOGOUT BUTTON INTO stMainMenuPopover & TOP TOOLBAR ---
-st.html(
-    """
-    <script>
-    const getDoc = () => (window.parent && window.parent.document) ? window.parent.document : document;
-
-    // 1. Injecter l'élément de déconnexion dans stMainMenuPopover
-    function injectLogoutToMenu() {
-        const doc = getDoc();
-        if (doc.getElementById('custom-logout-menu-item')) return;
-        const menuList = doc.querySelector(
-            'div[data-testid="stMainMenu"] ul, div[data-baseweb="popover"] ul, ul[role="menu"]'
+# --- INJECT LOGOUT BUTTON INTO stMainMenuPopover ---
+_logout_script = """
+(function() {
+    function injectLogoutItem() {
+        const menuList = document.querySelector(
+            '[data-testid="stMainMenuList"], [data-testid="stMainMenuPopover"] ul, div[data-baseweb="popover"] ul, ul[role="menu"]'
         );
         if (!menuList) return;
+        if (menuList.querySelector('#custom-logout-menu-item')) return;
 
-        const li = doc.createElement('li');
+        const divider = document.createElement('div');
+        divider.className = 'custom-logout-divider';
+        divider.setAttribute('role', 'separator');
+        divider.style.height = '1px';
+        divider.style.backgroundColor = '#E2E8F0';
+        divider.style.margin = '4px 0';
+
+        const li = document.createElement('li');
         li.id = 'custom-logout-menu-item';
         li.setAttribute('role', 'menuitem');
-        li.style.cursor = 'pointer';
-        li.style.padding = '10px 16px';
-        li.style.fontSize = '14px';
-        li.style.color = '#DC2626';
-        li.style.fontWeight = '600';
+        li.setAttribute('tabindex', '0');
+        li.setAttribute('data-testid', 'stMainMenuItem-logout');
         li.style.display = 'flex';
         li.style.alignItems = 'center';
         li.style.gap = '10px';
-        li.style.borderTop = '1px solid #E2E8F0';
-        li.style.marginTop = '4px';
+        li.style.padding = '10px 16px';
+        li.style.cursor = 'pointer';
+        li.style.color = '#DC2626';
+        li.style.fontWeight = '600';
+        li.style.fontSize = '14px';
         li.style.transition = 'background-color 0.15s ease';
-        li.innerHTML = '<span style="font-size: 15px;">🔒</span><span>Déconnexion (Espace Associés)</span>';
+        li.style.borderRadius = '4px';
+        li.style.margin = '2px 4px';
+        li.innerHTML = '<span style="font-size: 15px;">🔒</span><span>Déconnexion</span>';
 
-        li.onmouseover = () => { li.style.backgroundColor = '#FEE2E2'; };
-        li.onmouseout = () => { li.style.backgroundColor = 'transparent'; };
+        li.onmouseenter = function() { li.style.backgroundColor = '#FEE2E2'; };
+        li.onmouseleave = function() { li.style.backgroundColor = 'transparent'; };
 
-        li.onclick = (e) => {
+        li.onclick = function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const targetWin = window.parent || window;
-            const url = new URL(targetWin.location.href);
+            const url = new URL(window.location.href);
             url.search = '?logout=1';
-            targetWin.location.href = url.toString();
+            window.location.href = url.toString();
         };
 
+        menuList.appendChild(divider);
         menuList.appendChild(li);
     }
 
-    // Observer pour détecter l'ouverture du popover stMainMenuPopover
-    const doc = getDoc();
-    const observer = new MutationObserver(() => {
-        injectLogoutToMenu();
+    // Observer pour détecter l'apparition du menu des 3 petits points
+    const observer = new MutationObserver(function() {
+        injectLogoutItem();
     });
-    observer.observe(doc.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-    // Listener direct sur le bouton stMainMenuPopover
+    // Listener direct sur le bouton des 3 petits points (stMainMenu)
     function attachMenuListener() {
-        const d = getDoc();
-        const menuBtn = d.querySelector('[data-testid="stMainMenuPopover"] button, [data-testid="stMainMenuPopover"]');
-        if (menuBtn && !menuBtn._hasLogoutListener) {
-            menuBtn._hasLogoutListener = true;
-            menuBtn.addEventListener('click', () => {
-                setTimeout(injectLogoutToMenu, 50);
-                setTimeout(injectLogoutToMenu, 150);
-                setTimeout(injectLogoutToMenu, 300);
+        const btn = document.querySelector('[data-testid="stMainMenuButton"], [data-testid="stMainMenu"] button, [data-testid="stMainMenuPopover"] button, [data-testid="stMainMenu"]');
+        if (btn && !btn._hasLogoutObserver) {
+            btn._hasLogoutObserver = true;
+            btn.addEventListener('click', function() {
+                setTimeout(injectLogoutItem, 20);
+                setTimeout(injectLogoutItem, 60);
+                setTimeout(injectLogoutItem, 150);
+                setTimeout(injectLogoutItem, 300);
             });
         }
     }
     attachMenuListener();
-    setInterval(attachMenuListener, 800);
-
-    // 2. Bouton direct dans la barre d'outils supérieure à côté de stMainMenuPopover
-    function injectHeaderButton() {
-        const d = getDoc();
-        if (d.getElementById('custom-header-logout-btn')) return;
-        const headerToolbar = d.querySelector('[data-testid="stToolbarActions"], [data-testid="stHeader"] [data-testid="stToolbar"]');
-        if (headerToolbar) {
-            const btn = d.createElement('button');
-            btn.id = 'custom-header-logout-btn';
-            btn.title = 'Déconnexion de l\'Espace Associés';
-            btn.innerHTML = '🔒 Déconnexion';
-            btn.style.background = '#FEE2E2';
-            btn.style.color = '#DC2626';
-            btn.style.border = '1px solid #FCA5A5';
-            btn.style.borderRadius = '6px';
-            btn.style.padding = '3px 10px';
-            btn.style.fontSize = '12px';
-            btn.style.fontWeight = '600';
-            btn.style.cursor = 'pointer';
-            btn.style.marginRight = '8px';
-            btn.style.display = 'inline-flex';
-            btn.style.alignItems = 'center';
-            btn.style.height = '28px';
-            btn.style.transition = 'all 0.15s ease';
-
-            btn.onmouseover = () => { btn.style.background = '#FECACA'; };
-            btn.onmouseout = () => { btn.style.background = '#FEE2E2'; };
-
-            btn.onclick = () => {
-                const targetWin = window.parent || window;
-                const url = new URL(targetWin.location.href);
-                url.search = '?logout=1';
-                targetWin.location.href = url.toString();
-            };
-
-            headerToolbar.insertBefore(btn, headerToolbar.firstChild);
-        }
-    }
-    setInterval(injectHeaderButton, 600);
-    </script>
-    """,
-    unsafe_allow_javascript=True
+    setInterval(attachMenuListener, 500);
+    injectLogoutItem();
+})();
+"""
+_encoded_js = urllib.parse.quote(_logout_script)
+_html_payload = (
+    '<img src="x" style="display:none;" onerror="'
+    'if(!window._logoutInjected){window._logoutInjected=true;'
+    'var s=document.createElement(\'script\');'
+    's.textContent=decodeURIComponent(\'' + _encoded_js + '\');'
+    'document.head.appendChild(s);'
+    '}">'
 )
+st.html(_html_payload, unsafe_allow_javascript=True)
 
 # --- DATA CACHING ---
 @st.cache_data(show_spinner="Chargement des données de Lyon...")
@@ -370,16 +344,6 @@ if os.path.exists("assets/airbnb_logo.svg"):
 else:
     st.sidebar.markdown("<h2 style='color: #FF5A5F; margin: 0;'>airbnb</h2>", unsafe_allow_html=True)
 st.sidebar.title("Filtres Marché")
-
-# Session status indicator
-st.sidebar.markdown(
-    """
-    <div style="background:#F0FDF4;border:1px solid #BBF7D0;padding:6px 10px;border-radius:6px;font-size:11.5px;color:#166534;margin-bottom:8px;">
-        🟢 <b>Session Active</b> • Espace Associés
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("##### 📍 Localisation & Logement")
