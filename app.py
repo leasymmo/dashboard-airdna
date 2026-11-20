@@ -3,6 +3,8 @@ import re
 import json
 import hashlib
 import urllib.parse
+import secrets
+import time
 import requests
 try:
     from dotenv import load_dotenv
@@ -124,15 +126,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- AUTHENTICATION & SESSION PERSISTENCE ---
+@st.cache_resource
+def get_session_store():
+    """Stockage mémoire des sessions actives sur le serveur (token -> timestamp création)."""
+    return {}
+
 def check_authentication():
-    """Gère l'authentification des associés avec session persistante lors des rafraîchissements."""
-    # Vérification d'une demande explicite de déconnexion
+    """Gère l'authentification des associés avec session dynamique révocable."""
+    session_store = get_session_store()
+
+    # 1. Traitement explicite de déconnexion
     if st.query_params.get("logout") == "1":
+        current_token = st.session_state.get("session_token") or st.query_params.get("auth")
+        if current_token:
+            session_store.pop(current_token, None)
         st.query_params.clear()
+        st.session_state.clear()
         st.session_state["authenticated"] = False
+        st.session_state["logged_out"] = True
         st.rerun()
 
-    # 1. Mot de passe configuré (via variable d'environnement, secrets Streamlit, ou valeur par défaut)
+    # 2. Mot de passe configuré
     configured_pwd = os.environ.get("CONCIERGERIE_PASSWORD")
     if not configured_pwd:
         try:
@@ -140,22 +154,30 @@ def check_authentication():
         except Exception:
             configured_pwd = "lyon2026"
 
-    # Sel cryptographique pour générer un jeton de session sécurisé et non réversible
-    auth_salt = "lyon_conciergerie_secret_salt_2026"
-    valid_token = hashlib.sha256(f"{configured_pwd}_{auth_salt}".encode("utf-8")).hexdigest()
-
-    # Vérification du jeton persistant dans l'URL (survit aux rafraîchissements F5 / Cmd+R)
+    # 3. Vérification du jeton reçu dans l'URL ou en session_state
     url_token = st.query_params.get("auth")
-    if url_token == valid_token:
-        st.session_state["authenticated"] = True
-        return True
+    session_token = st.session_state.get("session_token")
+    token_to_check = url_token or session_token
 
-    # Vérification en session state
-    if st.session_state.get("authenticated", False):
-        st.query_params["auth"] = valid_token
-        return True
+    if token_to_check:
+        # Vérification si le jeton existe et est actif sur le serveur
+        if token_to_check in session_store:
+            # Vérification de durée de validité (max 7 jours)
+            if time.time() - session_store[token_to_check] < 7 * 86400:
+                st.session_state["authenticated"] = True
+                st.session_state["session_token"] = token_to_check
+                st.query_params["auth"] = token_to_check
+                return True
+            else:
+                session_store.pop(token_to_check, None)
+        
+        # Si le jeton n'est pas dans session_store (déconnecté ou invalide)
+        st.query_params.clear()
+        st.session_state.clear()
+        st.session_state["authenticated"] = False
+        st.session_state["session_expired"] = True
 
-    # Utilisateur non authentifié : affichage de l'écran d'accès sécurisé
+    # 4. Utilisateur non authentifié : affichage de l'écran d'accès sécurisé
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, col_box, _ = st.columns([1, 1.4, 1])
     with col_box:
@@ -170,20 +192,31 @@ def check_authentication():
             """,
             unsafe_allow_html=True
         )
+
+        if st.session_state.get("logged_out"):
+            st.info("🔒 Vous avez été déconnecté avec succès.")
+            st.session_state["logged_out"] = False
+        elif st.session_state.get("session_expired"):
+            st.warning("⏱️ Session fermée ou expirée. Veuillez saisir le mot de passe pour vous reconnecter.")
+            st.session_state["session_expired"] = False
+
         with st.form("login_form"):
             entered_pwd = st.text_input("Mot de passe associé :", type="password", placeholder="Saisissez le mot de passe...")
             submit_btn = st.form_submit_button("Accéder au Dashboard 🔓", width="stretch")
 
             if submit_btn:
                 if entered_pwd == configured_pwd:
+                    new_token = secrets.token_hex(24)
+                    session_store[new_token] = time.time()
                     st.session_state["authenticated"] = True
-                    st.query_params["auth"] = valid_token
+                    st.session_state["session_token"] = new_token
+                    st.query_params["auth"] = new_token
                     st.success("Connexion réussie ! Chargement...")
                     st.rerun()
                 else:
                     st.error("Mot de passe incorrect. Veuillez vérifier auprès de vos associés.")
 
-        st.caption("🔒 Votre session est mémorisée : vous n'aurez pas besoin de ressaisir le mot de passe lors de vos actualisations.")
+        st.caption("🔒 Session active mémorisée : actualisez librement la page (F5) sans ressaisir le mot de passe. La session est invalidée dès que vous cliquez sur Déconnexion.")
 
     return False
 
