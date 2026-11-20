@@ -190,91 +190,6 @@ def check_authentication():
 if not check_authentication():
     st.stop()
 
-# --- INJECT LOGOUT BUTTON INTO stMainMenuPopover ---
-_logout_script = """
-(function() {
-    function injectLogoutItem() {
-        const menuList = document.querySelector(
-            '[data-testid="stMainMenuList"], [data-testid="stMainMenuPopover"] ul, div[data-baseweb="popover"] ul, ul[role="menu"]'
-        );
-        if (!menuList) return;
-        if (menuList.querySelector('#custom-logout-menu-item')) return;
-
-        const divider = document.createElement('div');
-        divider.className = 'custom-logout-divider';
-        divider.setAttribute('role', 'separator');
-        divider.style.height = '1px';
-        divider.style.backgroundColor = '#E2E8F0';
-        divider.style.margin = '4px 0';
-
-        const li = document.createElement('li');
-        li.id = 'custom-logout-menu-item';
-        li.setAttribute('role', 'menuitem');
-        li.setAttribute('tabindex', '0');
-        li.setAttribute('data-testid', 'stMainMenuItem-logout');
-        li.style.display = 'flex';
-        li.style.alignItems = 'center';
-        li.style.gap = '10px';
-        li.style.padding = '10px 16px';
-        li.style.cursor = 'pointer';
-        li.style.color = '#DC2626';
-        li.style.fontWeight = '600';
-        li.style.fontSize = '14px';
-        li.style.transition = 'background-color 0.15s ease';
-        li.style.borderRadius = '4px';
-        li.style.margin = '2px 4px';
-        li.innerHTML = '<span style="font-size: 15px;">🔒</span><span>Déconnexion</span>';
-
-        li.onmouseenter = function() { li.style.backgroundColor = '#FEE2E2'; };
-        li.onmouseleave = function() { li.style.backgroundColor = 'transparent'; };
-
-        li.onclick = function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            const url = new URL(window.location.href);
-            url.search = '?logout=1';
-            window.location.href = url.toString();
-        };
-
-        menuList.appendChild(divider);
-        menuList.appendChild(li);
-    }
-
-    // Observer pour détecter l'apparition du menu des 3 petits points
-    const observer = new MutationObserver(function() {
-        injectLogoutItem();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    // Listener direct sur le bouton des 3 petits points (stMainMenu)
-    function attachMenuListener() {
-        const btn = document.querySelector('[data-testid="stMainMenuButton"], [data-testid="stMainMenu"] button, [data-testid="stMainMenuPopover"] button, [data-testid="stMainMenu"]');
-        if (btn && !btn._hasLogoutObserver) {
-            btn._hasLogoutObserver = true;
-            btn.addEventListener('click', function() {
-                setTimeout(injectLogoutItem, 20);
-                setTimeout(injectLogoutItem, 60);
-                setTimeout(injectLogoutItem, 150);
-                setTimeout(injectLogoutItem, 300);
-            });
-        }
-    }
-    attachMenuListener();
-    setInterval(attachMenuListener, 500);
-    injectLogoutItem();
-})();
-"""
-_encoded_js = urllib.parse.quote(_logout_script)
-_html_payload = (
-    '<img src="x" style="display:none;" onerror="'
-    'if(!window._logoutInjected){window._logoutInjected=true;'
-    'var s=document.createElement(\'script\');'
-    's.textContent=decodeURIComponent(\'' + _encoded_js + '\');'
-    'document.head.appendChild(s);'
-    '}">'
-)
-st.html(_html_payload, unsafe_allow_javascript=True)
-
 # --- DATA CACHING ---
 @st.cache_data(show_spinner="Chargement des données de Lyon...")
 def load_data():
@@ -496,6 +411,12 @@ min_rating = st.sidebar.slider(
     step=0.1,
     help="0.0 = Toutes les annonces. Choisissez par exemple 4.5 pour afficher uniquement les logements ayant au moins 4.5 / 5 étoiles."
 )
+
+# Déconnexion de session
+st.sidebar.markdown("---")
+if st.sidebar.button("🔒 Déconnexion", key="sidebar_logout_btn", width="stretch", help="Fermer la session de l'Espace Associés"):
+    st.query_params["logout"] = "1"
+    st.rerun()
 
 # --- FILTERING LOGIC ---
 mask = (
@@ -781,9 +702,17 @@ def show_listing_modal(listing_id):
     if st.button("✕ Fermer la fiche", width="stretch"):
         st.rerun()
 
-# --- TOP HEADER ---
-st.markdown('<div class="main-header">🏙️ Lyon Short-Term Rental Intelligence</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Tableau de bord d\'analyse de marché & veille concurrentielle pour société de conciergerie | Données source Inside Airbnb (Lyon)</div>', unsafe_allow_html=True)
+# --- TOP HEADER & ACTIONS ---
+col_head_title, col_head_logout = st.columns([5.8, 1.2])
+with col_head_title:
+    st.markdown('<div class="main-header">🏙️ Lyon Short-Term Rental Intelligence</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Tableau de bord d\'analyse de marché & veille concurrentielle pour société de conciergerie | Données source Inside Airbnb (Lyon)</div>', unsafe_allow_html=True)
+with col_head_logout:
+    st.markdown("<div style='margin-top: 10px;'>", unsafe_allow_html=True)
+    if st.button("🔒 Déconnexion", key="header_logout_btn", type="secondary", width="stretch", help="Fermer la session de l'Espace Associés"):
+        st.query_params["logout"] = "1"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # Alert if empty
 if len(df) == 0:
